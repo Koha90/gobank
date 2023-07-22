@@ -1,7 +1,7 @@
 build:
 	@go build -o bin/gobank
 
-run:
+run: build
 	@./bin/gobank
 
 test:

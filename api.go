@@ -27,6 +27,7 @@ func NewAPIServer(listenAddr string, store Storage) *APIServer {
 func (s *APIServer) Run() {
 	router := mux.NewRouter()
 
+	router.HandleFunc("/loging", makeHTTPHandleFunc(s.handleLogin))
 	router.HandleFunc("/account", makeHTTPHandleFunc(s.handleAccount))
 	router.HandleFunc(
 		"/account/{id}",
@@ -50,6 +51,39 @@ func (s *APIServer) handleAccount(w http.ResponseWriter, r *http.Request) error 
 		return s.handleDeleteAccount(w, r)
 	}
 	return fmt.Errorf("method not allowed %s", r.Method)
+}
+
+// 913502
+func (s *APIServer) handleLogin(w http.ResponseWriter, r *http.Request) error {
+	if r.Method != http.MethodPost {
+		return fmt.Errorf("method not allowed %s", r.Method)
+	}
+
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		return err
+	}
+
+	acc, err := s.store.GetAccountByNumber(int(req.Number))
+	if err != nil {
+		return err // TODO: handle this response as JSON.
+	}
+
+	if !acc.ValidatePassword(req.Password) {
+		return fmt.Errorf("not authenticated")
+	}
+
+	token, err := creatJWT(acc)
+	if err != nil {
+		return err
+	}
+
+	resp := LoginResponse{
+		Token:  token,
+		Number: acc.Number,
+	}
+
+	return WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *APIServer) handleGetAccount(w http.ResponseWriter, r *http.Request) error {
@@ -84,23 +118,19 @@ func (s *APIServer) handleGetAccountByID(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *APIServer) handleCreateAccount(w http.ResponseWriter, r *http.Request) error {
-	createAccountRequest := new(CreateAccountRequest)
+	req := new(CreateAccountRequest)
 	// createAccountRequest := CreateAccountRequest{}
-	if err := json.NewDecoder(r.Body).Decode(createAccountRequest); err != nil {
+	if err := json.NewDecoder(r.Body).Decode(req); err != nil {
 		return err
 	}
 
-	account := NewAccount(createAccountRequest.FirstName, createAccountRequest.LastName)
-	if err := s.store.CreateAccount(account); err != nil {
-		return err
-	}
-
-	tokenString, err := creatJWT(account)
+	account, err := NewAccount(req.FirstName, req.LastName, req.Password)
 	if err != nil {
 		return err
 	}
-
-	fmt.Println("JWT Token:", tokenString)
+	if err := s.store.CreateAccount(account); err != nil {
+		return err
+	}
 
 	return WriteJSON(w, http.StatusOK, account)
 }
